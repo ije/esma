@@ -1,8 +1,5 @@
 import React from 'https://esm.sh/react@17'
-import {render} from 'https://esm.sh/react-dom@17'
+import { render } from 'https://esm.sh/react-dom@17'
+import Component from './Component.jsx'
 
-const App = () => {
-  return <h1>Hello World!</h1>
-}
-
-render(<App />, document.querySelector('#root'))
+render(<Component />, document.querySelector('#root'))
