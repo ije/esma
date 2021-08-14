@@ -2,8 +2,6 @@ package server
 
 import (
 	"time"
-
-	"github.com/evanw/esbuild/pkg/api"
 )
 
 // The config for ESMD Server
@@ -21,12 +19,11 @@ type AutotlsConfig struct {
 
 // FileContent cache file content in memory
 type FileContent struct {
-	Error   error
 	Modtime time.Time
 	Content []byte
 }
 
 type ESBulidRecord struct {
 	FileContent
-	api.BuildResult
+	FileName string
 }

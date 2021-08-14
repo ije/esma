@@ -83,8 +83,9 @@ func Serve() {
 	}
 
 	app := &App{
-		wd:  workingDir,
-		dev: command == "dev",
+		wd:     workingDir,
+		dev:    command == "dev",
+		builds: map[string]*ESBulidRecord{},
 	}
 
 	rex.Use(
