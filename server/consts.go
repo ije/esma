@@ -12,6 +12,13 @@ const (
 </body>
 </html>
 `
+	cssLoader = `
+const el = document.createElement('style')
+el.type = 'text/css'
+el.setAttribute('data-module-url', "%s")
+el.appendChild(document.createTextNode(%s))
+document.head.appendChild(el)
+`
 )
 
 var (

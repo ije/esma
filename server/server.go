@@ -24,17 +24,24 @@ func Serve() {
 	var port int
 	var httpsPort int
 	var logLevel string
-	var dev bool
+	var command string
+	var workingDir string
+	var err error
 
 	flag.IntVar(&port, "port", 80, "http server port")
 	flag.IntVar(&httpsPort, "https-port", 443, "https server port")
 	flag.StringVar(&logLevel, "log-level", "info", "log level")
-	flag.BoolVar(&dev, "d", false, "run server in development mode")
 	flag.Parse()
 
-	workingDir, err := os.Getwd()
-	if len(flag.Args()) > 0 {
-		workingDir, err = filepath.Abs(flag.Arg(0))
+	if l := len(flag.Args()); l > 0 {
+		if l > 1 {
+			command = flag.Arg(0)
+			workingDir, err = filepath.Abs(flag.Arg(1))
+		} else {
+			workingDir, err = filepath.Abs(flag.Arg(0))
+		}
+	} else {
+		workingDir, err = os.Getwd()
 	}
 	if err != nil {
 		log.Fatal(err)
@@ -52,7 +59,7 @@ func Serve() {
 		}
 	}
 
-	if dev {
+	if command == "dev" {
 		log.SetLevelByName("debug")
 	} else {
 		log.SetLevelByName(logLevel)
@@ -77,7 +84,7 @@ func Serve() {
 
 	app := &App{
 		wd:  workingDir,
-		dev: dev,
+		dev: command == "dev",
 	}
 
 	rex.Use(
@@ -97,7 +104,7 @@ func Serve() {
 		TLS: rex.TLSConfig{
 			Port: uint16(httpsPort),
 			AutoTLS: rex.AutoTLSConfig{
-				AcceptTOS: !dev,
+				AcceptTOS: command != "dev",
 				Hosts:     config.Autotls.Hosts,
 				CacheDir:  config.Autotls.CacheDir,
 			},
@@ -107,7 +114,7 @@ func Serve() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGKILL, syscall.SIGHUP)
 
-	if dev {
+	if command == "dev" {
 		go app.Watch()
 		log.Debugf("Server ready on http://localhost:%d", port)
 	}
