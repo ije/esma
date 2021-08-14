@@ -1,5 +1,5 @@
 import './style.css'
 
-const message: string = 'Hello world!'
+const message: string = 'Hello World!'
 
-document.querySelector('#root').innerHTML = `<h1>${message}</h1>`
+document.querySelector('#root').innerHTML = `<div class="demo">${message}</div>`
