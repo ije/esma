@@ -32,7 +32,7 @@ func (app *App) Build(filename string, rebuild bool) (out FileContent, err error
 		record, ok := app.builds[filename]
 		app.lock.RUnlock()
 		if ok {
-			out =  record
+			out = record
 			return
 		}
 	}
@@ -142,7 +142,7 @@ func (app *App) Build(filename string, rebuild bool) (out FileContent, err error
 			Modtime: modtime,
 		}
 		app.lock.Lock()
-		app.builds[filename] =  out
+		app.builds[filename] = out
 		app.lock.Unlock()
 		return
 	}
@@ -157,24 +157,26 @@ func (app *App) Watch() {
 		interval: 50 * time.Millisecond,
 	}
 	w.start(func(filename string, exists bool) {
-		app.lock.Lock()
-		defer app.lock.Unlock()
-
 		if exists {
 			_, err := app.Build(filename, true)
 			if err != nil {
-				delete(app.builds, filename)
+				app.removeBuild(filename)
 				os.Stdout.WriteString(err.Error())
 			}
 		} else {
-			delete(app.builds, filename)
+			app.removeBuild(filename)
 		}
 	})
-	log.Print("Watching file changes...")
+	log.Debug("Watching file for changes...")
 }
 
 func (app *App) Handle() rex.Handle {
 	return func(ctx *rex.Context) interface{} {
+		// in dev mode, we use `Last-Modified` and `ETag` header to control cache
+		if app.dev {
+			ctx.SetHeader("Cache-Control", "max-age=0")
+		}
+
 		pathname := ctx.R.URL.Path
 		if strings.HasPrefix(pathname, "/builtin:") {
 			build, err := app.Build(pathname, false)
@@ -244,4 +246,11 @@ func (app *App) Handle() rex.Handle {
 
 		return rex.Status(404, "not found")
 	}
+}
+
+func (app *App) removeBuild(filename string) {
+	app.lock.Lock()
+	defer app.lock.Unlock()
+
+	delete(app.builds, filename)
 }

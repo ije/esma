@@ -95,11 +95,8 @@ func (w *watcher) tryToFindDirtyPath() (string, time.Time) {
 	for i, path := range w.recentItems {
 		ok, modtime := w.checkModtime(path)
 		if ok {
-			if !modtime.IsZero() {
-				// Move this path to the back of the list (i.e. the "most recent" position)
-				copy(w.recentItems[i:], w.recentItems[i+1:])
-				w.recentItems[len(w.recentItems)-1] = path
-			}
+			copy(w.recentItems[i:], w.recentItems[i+1:])
+			w.recentItems[len(w.recentItems)-1] = path
 			return path, modtime
 		}
 	}
@@ -116,10 +113,7 @@ func (w *watcher) tryToFindDirtyPath() (string, time.Time) {
 	for _, path := range toCheck {
 		ok, modtime := w.checkModtime(path)
 		if ok {
-			if !modtime.IsZero() {
-				// Mark this item as recent by adding it to the back of the list
-				w.recentItems = append(w.recentItems, path)
-			}
+			w.recentItems = append(w.recentItems, path)
 			if len(w.recentItems) > maxRecentItemCount {
 				// Remove items from the front of the list when we hit the limit
 				copy(w.recentItems, w.recentItems[1:])
