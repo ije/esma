@@ -1,3 +1,3 @@
-# ESMd
+# ESMA
 
-Next-generation tool to build modern web application. No Nodejs/Deno needed.
+Next-generation tool to build modern web application. No Nodejs needed.
