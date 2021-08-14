@@ -87,7 +87,7 @@ func Serve(fs *embed.FS) {
 		embedFS: fs,
 		wd:      workingDir,
 		dev:     command == "dev",
-		builds:  map[string]*FileContent{},
+		builds:  map[string]FileContent{},
 	}
 
 	rex.Use(

@@ -23,7 +23,7 @@ type App struct {
 	embedFS *embed.FS
 	wd      string
 	dev     bool
-	builds  map[string]*FileContent
+	builds  map[string]FileContent
 }
 
 func (app *App) Build(filename string, rebuild bool) (out FileContent, err error) {
@@ -32,7 +32,7 @@ func (app *App) Build(filename string, rebuild bool) (out FileContent, err error
 		record, ok := app.builds[filename]
 		app.lock.RUnlock()
 		if ok {
-			out = *record
+			out =  record
 			return
 		}
 	}
@@ -66,7 +66,7 @@ func (app *App) Build(filename string, rebuild bool) (out FileContent, err error
 			Content: data,
 		}
 		app.lock.Lock()
-		app.builds[filename] = &out
+		app.builds[filename] = out
 		app.lock.Unlock()
 		return
 	}
@@ -142,7 +142,7 @@ func (app *App) Build(filename string, rebuild bool) (out FileContent, err error
 			Modtime: modtime,
 		}
 		app.lock.Lock()
-		app.builds[filename] = &out
+		app.builds[filename] =  out
 		app.lock.Unlock()
 		return
 	}
