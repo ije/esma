@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,11 +19,11 @@ import (
 )
 
 type App struct {
-	lock      sync.RWMutex
-	wd        string
-	dev       bool
-	indexHTML FileContent
-	builds    map[string]*ESBulidRecord
+	lock    sync.RWMutex
+	embedFS *embed.FS
+	wd      string
+	dev     bool
+	builds  map[string]*FileContent
 }
 
 func (app *App) Build(filename string, rebuild bool) (out FileContent, err error) {
@@ -31,18 +32,42 @@ func (app *App) Build(filename string, rebuild bool) (out FileContent, err error
 		record, ok := app.builds[filename]
 		app.lock.RUnlock()
 		if ok {
-			out = record.FileContent
+			out = *record
 			return
 		}
 	}
 
-	fi, err := os.Lstat(filename)
-	if err != nil {
-		return
+	var isBuiltin = strings.HasPrefix(filename, "/builtin:")
+	var modtime = time.Time{}
+
+	if !isBuiltin {
+		var fi os.FileInfo
+		fi, err = os.Lstat(filename)
+		if err != nil {
+			return
+		}
+
+		if fi.IsDir() {
+			err = errors.New("can't build a directory")
+			return
+		}
+
+		modtime = fi.ModTime()
 	}
 
-	if fi.IsDir() {
-		err = errors.New("can't build a directory")
+	if strings.HasSuffix(filename, "/index.html") {
+		var data []byte
+		data, err = ioutil.ReadFile(filename)
+		if err != nil {
+			return
+		}
+		out = FileContent{
+			Modtime: modtime,
+			Content: data,
+		}
+		app.lock.Lock()
+		app.builds[filename] = &out
+		app.lock.Unlock()
 		return
 	}
 
@@ -82,7 +107,22 @@ func (app *App) Build(filename string, rebuild bool) (out FileContent, err error
 		MinifyIdentifiers: minify,
 		MinifySyntax:      minify,
 		Plugins:           []api.Plugin{esmaPlugin},
-		EntryPoints:       []string{filename},
+	}
+	if isBuiltin {
+		var data []byte
+		name := strings.TrimPrefix(filename, "/builtin:")
+		data, err = app.embedFS.ReadFile("embed/builtin/" + name)
+		if err != nil {
+			return
+		}
+		options.Stdin = &api.StdinOptions{
+			Contents:   string(data),
+			ResolveDir: "embed/builtin/",
+			Sourcefile: name,
+			Loader:     api.LoaderTS,
+		}
+	} else {
+		options.EntryPoints = []string{filename}
 	}
 	result := api.Build(options)
 	if l := len(result.Errors); l > 0 {
@@ -99,13 +139,10 @@ func (app *App) Build(filename string, rebuild bool) (out FileContent, err error
 	if len(result.OutputFiles) > 0 {
 		out = FileContent{
 			Content: result.OutputFiles[0].Contents,
-			Modtime: fi.ModTime(),
+			Modtime: modtime,
 		}
 		app.lock.Lock()
-		app.builds[filename] = &ESBulidRecord{
-			FileContent: out,
-			FileName:    filename,
-		}
+		app.builds[filename] = &out
 		app.lock.Unlock()
 		return
 	}
@@ -119,20 +156,35 @@ func (app *App) Watch() {
 		app:      app,
 		interval: 50 * time.Millisecond,
 	}
-	w.start(func(filename string) {
-		_, err := app.Build(filename, true)
-		if err != nil {
-			os.Stdout.WriteString(err.Error())
+	w.start(func(filename string, exists bool) {
+		app.lock.Lock()
+		defer app.lock.Unlock()
+
+		if exists {
+			_, err := app.Build(filename, true)
+			if err != nil {
+				delete(app.builds, filename)
+				os.Stdout.WriteString(err.Error())
+			}
+		} else {
+			delete(app.builds, filename)
 		}
 	})
 	log.Print("Watching file changes...")
 }
 
 func (app *App) Handle() rex.Handle {
-	app.createIndexHtml()
-
 	return func(ctx *rex.Context) interface{} {
-		filepath := path.Join(app.wd, ctx.R.URL.Path)
+		pathname := ctx.R.URL.Path
+		if strings.HasPrefix(pathname, "/builtin:") {
+			build, err := app.Build(pathname, false)
+			if err != nil {
+				return err
+			}
+			return rex.Content("index.js", build.Modtime, bytes.NewReader(build.Content))
+		}
+
+		filepath := path.Join(app.wd, pathname)
 		if fileExists(filepath) {
 			for _, ext := range defaultModuleExts {
 				if strings.HasSuffix(filepath, ext) {
@@ -155,7 +207,7 @@ func (app *App) Handle() rex.Handle {
 					if err != nil {
 						return err
 					}
-					js := fmt.Sprintf(cssLoader, ctx.R.URL.Path, string(str))
+					js := fmt.Sprintf(cssLoader, pathname, string(str))
 					return rex.Content("index.js", build.Modtime, bytes.NewReader([]byte(js)))
 				}
 			}
@@ -163,37 +215,33 @@ func (app *App) Handle() rex.Handle {
 			return rex.File(filepath)
 		}
 
-		if ctx.R.URL.Path == "/favicon.ico" {
-			return rex.Err(404)
+		if pathname == "/favicon.ico" {
+			return rex.Status(404, "not found")
 		}
 
-		return rex.Content("index.html", app.indexHTML.Modtime, bytes.NewReader(app.indexHTML.Content))
-	}
-}
-
-func (app *App) createIndexHtml() {
-	p := path.Join(app.wd, "index.html")
-	fi, err := os.Lstat(p)
-	if err == nil && !fi.IsDir() {
-		data, err := ioutil.ReadFile(p)
-		if err == nil {
-			app.indexHTML = FileContent{
-				Modtime: fi.ModTime(),
-				Content: data,
+		filepath = path.Join(app.wd, pathname, "index.html")
+		if !fileExists(filepath) {
+			// fallback to root index.html
+			filepath = path.Join(app.wd, "index.html")
+		}
+		if fileExists(filepath) {
+			build, err := app.Build(filepath, false)
+			if err != nil {
+				return err
 			}
+			return rex.Content("index.html", build.Modtime, bytes.NewReader(build.Content))
 		}
-	} else {
+
 		for _, name := range []string{"app", "main", "index"} {
 			for _, ext := range defaultModuleExts {
 				filename := name + ext
-				if fileExists(path.Join(app.wd, filename)) {
-					app.indexHTML = FileContent{
-						Modtime: time.Now(),
-						Content: []byte(fmt.Sprintf(defaultIndexHtml, "./"+filename)),
-					}
-					return
+				fi, err := os.Lstat(filename)
+				if err == nil && !fi.IsDir() {
+					return rex.Content("index.html", fi.ModTime(), bytes.NewReader([]byte(fmt.Sprintf(defaultIndexHtml, "./"+filename))))
 				}
 			}
 		}
+
+		return rex.Status(404, "not found")
 	}
 }

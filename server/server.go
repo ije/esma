@@ -1,6 +1,7 @@
 package server
 
 import (
+	"embed"
 	"flag"
 	"fmt"
 	"os"
@@ -20,7 +21,7 @@ var (
 )
 
 // Serve serves ESMD server
-func Serve() {
+func Serve(fs *embed.FS) {
 	var port int
 	var httpsPort int
 	var logLevel string
@@ -83,9 +84,10 @@ func Serve() {
 	}
 
 	app := &App{
-		wd:     workingDir,
-		dev:    command == "dev",
-		builds: map[string]*ESBulidRecord{},
+		embedFS: fs,
+		wd:      workingDir,
+		dev:     command == "dev",
+		builds:  map[string]*FileContent{},
 	}
 
 	rex.Use(

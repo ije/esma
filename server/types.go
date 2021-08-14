@@ -22,8 +22,3 @@ type FileContent struct {
 	Modtime time.Time
 	Content []byte
 }
-
-type ESBulidRecord struct {
-	FileContent
-	FileName string
-}

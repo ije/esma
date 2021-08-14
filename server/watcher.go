@@ -4,6 +4,7 @@ package server
 import (
 	"math/rand"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -43,7 +44,7 @@ func (w *watcher) setWatchData() {
 	w.recentItems = w.recentItems[:end]
 }
 
-func (w *watcher) start(onChange func(path string)) {
+func (w *watcher) start(onChange func(path string, exists bool)) {
 	go func() {
 		for atomic.LoadInt32(&w.shouldStop) == 0 {
 			// Sleep for the watch interval
@@ -52,13 +53,8 @@ func (w *watcher) start(onChange func(path string)) {
 			// Rebuild if we're dirty
 			filename, modtime := w.tryToFindDirtyPath()
 			if filename != "" {
-				onChange(filename)
-				w.app.lock.Lock()
-				build, ok := w.app.builds[filename]
-				if ok {
-					build.Modtime = modtime
-				}
-				w.app.lock.Unlock()
+				exists := !modtime.IsZero()
+				onChange(filename, exists)
 				w.setWatchData()
 			}
 		}
@@ -75,7 +71,9 @@ func (w *watcher) tryToFindDirtyPath() (string, time.Time) {
 		items := w.itemsToScan[:0] // Reuse memory
 		w.app.lock.RLock()
 		for path := range w.app.builds {
-			items = append(items, path)
+			if !strings.HasPrefix(path, "/builtin:") {
+				items = append(items, path)
+			}
 		}
 		w.app.lock.RUnlock()
 		rand.Seed(time.Now().UnixNano())
@@ -97,9 +95,11 @@ func (w *watcher) tryToFindDirtyPath() (string, time.Time) {
 	for i, path := range w.recentItems {
 		ok, modtime := w.checkModtime(path)
 		if ok {
-			// Move this path to the back of the list (i.e. the "most recent" position)
-			copy(w.recentItems[i:], w.recentItems[i+1:])
-			w.recentItems[len(w.recentItems)-1] = path
+			if !modtime.IsZero() {
+				// Move this path to the back of the list (i.e. the "most recent" position)
+				copy(w.recentItems[i:], w.recentItems[i+1:])
+				w.recentItems[len(w.recentItems)-1] = path
+			}
 			return path, modtime
 		}
 	}
@@ -116,8 +116,10 @@ func (w *watcher) tryToFindDirtyPath() (string, time.Time) {
 	for _, path := range toCheck {
 		ok, modtime := w.checkModtime(path)
 		if ok {
-			// Mark this item as recent by adding it to the back of the list
-			w.recentItems = append(w.recentItems, path)
+			if !modtime.IsZero() {
+				// Mark this item as recent by adding it to the back of the list
+				w.recentItems = append(w.recentItems, path)
+			}
 			if len(w.recentItems) > maxRecentItemCount {
 				// Remove items from the front of the list when we hit the limit
 				copy(w.recentItems, w.recentItems[1:])
@@ -136,7 +138,9 @@ func (w *watcher) checkModtime(path string) (bool, time.Time) {
 	w.app.lock.RUnlock()
 	if ok {
 		fi, err := os.Lstat(path)
-		if err == nil {
+		if err != nil && os.IsNotExist(err) {
+			return true, time.Time{}
+		} else if err == nil {
 			modtime := fi.ModTime()
 			if !modtime.Equal(build.Modtime) {
 				return true, modtime
